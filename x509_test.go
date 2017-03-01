@@ -1273,3 +1273,11 @@ func TestMD5(t *testing.T) {
 		t.Fatalf("certificate verification returned %v (%T), wanted InsecureAlgorithmError", err, err)
 	}
 }
+
+func TestSystemRootsPool(t *testing.T) {
+	certPool := SystemRootsPool()
+
+	if certPool == nil {
+		t.Fatal("no system cert pool")
+	}
+}
