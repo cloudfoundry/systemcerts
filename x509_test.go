@@ -27,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudfoundry/systemcerts/testing/testenv"
+	"code.cloudfoundry.org/systemcerts/testing/testenv"
 )
 
 func TestParsePKCS1PrivateKey(t *testing.T) {

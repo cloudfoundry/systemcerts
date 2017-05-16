@@ -14,7 +14,7 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/cloudfoundry/systemcerts/testing/syscall/windows/registry"
+	"code.cloudfoundry.org/systemcerts/testing/syscall/windows/registry"
 )
 
 func randKeyName(prefix string) string {
