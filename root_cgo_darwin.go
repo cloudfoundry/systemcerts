@@ -66,7 +66,7 @@ import "unsafe"
 func initSystemRoots() {
 	roots := NewCertPool()
 
-	var data C.CFDataRef = nil
+	var data C.CFDataRef = 0
 	err := C.OurFetchPEMRoots(&data)
 	if err == -1 {
 		return
