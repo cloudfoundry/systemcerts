@@ -1,3 +1,7 @@
+# DEPRECATED
+
+This package is deprecated past Diego v2.0.0 in favor of `crypto/x509` in golang v1.9+ that fixes the issue below.
+
 # package systemcerts
 
 **Note**: This repository should be imported as `code.cloudfoundry.org/systemcerts`.
