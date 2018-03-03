@@ -1,7 +1,3 @@
-# DEPRECATED
-
-This package is deprecated past Diego v2.0.0 in favor of `crypto/x509`'s [SystemCertPool](https://golang.org/pkg/crypto/x509/#SystemCertPool) in golang v1.9+ that fixes the issue below.
-
 # package systemcerts
 
 **Note**: This repository should be imported as `code.cloudfoundry.org/systemcerts`.
