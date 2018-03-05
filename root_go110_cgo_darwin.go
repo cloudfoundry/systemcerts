@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build cgo,!arm,!arm64,!ios
+// +build go1.10,cgo,!arm,!arm64,!ios
 
 package systemcerts
 
@@ -66,7 +66,7 @@ import "unsafe"
 func initSystemRoots() {
 	roots := NewCertPool()
 
-	var data C.CFDataRef = nil
+	var data C.CFDataRef = 0
 	err := C.OurFetchPEMRoots(&data)
 	if err == -1 {
 		return
