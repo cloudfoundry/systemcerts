@@ -42,7 +42,7 @@ type rfc1423Algo struct {
 }
 
 // rfc1423Algos holds a slice of the possible ways to encrypt a PEM
-// block.  The ivSize numbers were taken from the OpenSSL source.
+// block. The ivSize numbers were taken from the OpenSSL source.
 var rfc1423Algos = []rfc1423Algo{{
 	cipher:     PEMCipherDES,
 	name:       "DES-CBC",
@@ -203,7 +203,7 @@ func EncryptPEMBlock(rand io.Reader, blockType string, data, password []byte, al
 	// the data separately, but it doesn't seem worth the additional
 	// code.
 	copy(encrypted, data)
-	// See RFC 1423, section 1.1
+	// See RFC 1423, Section 1.1.
 	for i := 0; i < pad; i++ {
 		encrypted = append(encrypted, byte(pad))
 	}

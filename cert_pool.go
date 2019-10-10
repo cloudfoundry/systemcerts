@@ -19,13 +19,51 @@ type CertPool struct {
 // NewCertPool returns a new, empty CertPool.
 func NewCertPool() *CertPool {
 	return &CertPool{
-		make(map[string][]int),
-		make(map[string][]int),
-		nil,
+		bySubjectKeyId: make(map[string][]int),
+		byName:         make(map[string][]int),
 	}
 }
 
+func (s *CertPool) copy() *CertPool {
+	p := &CertPool{
+		bySubjectKeyId: make(map[string][]int, len(s.bySubjectKeyId)),
+		byName:         make(map[string][]int, len(s.byName)),
+		certs:          make([]*Certificate, len(s.certs)),
+	}
+	for k, v := range s.bySubjectKeyId {
+		indexes := make([]int, len(v))
+		copy(indexes, v)
+		p.bySubjectKeyId[k] = indexes
+	}
+	for k, v := range s.byName {
+		indexes := make([]int, len(v))
+		copy(indexes, v)
+		p.byName[k] = indexes
+	}
+	copy(p.certs, s.certs)
+	return p
+}
+
+// SystemCertPool returns a copy of the system cert pool.
+//
+// Any mutations to the returned pool are not written to disk and do
+// not affect any other pool returned by SystemCertPool.
+//
+// New changes in the system cert pool might not be reflected
+// in subsequent calls.
+func SystemCertPool() (*CertPool, error) {
+	if sysRoots := systemRootsPool(); sysRoots != nil {
+		return sysRoots.copy(), nil
+	}
+
+	return loadSystemRoots()
+}
+
 func (c *Certificate) AsX509Certificate() *x509.Certificate {
+	extKeyUsage := make([]x509.ExtKeyUsage, len(c.ExtKeyUsage), len(c.ExtKeyUsage))
+	for _, e := range c.ExtKeyUsage {
+		extKeyUsage = append(extKeyUsage, x509.ExtKeyUsage(e))
+	}
 	return &x509.Certificate{
 		Raw:                         c.Raw,
 		RawTBSCertificate:           c.RawTBSCertificate,
@@ -33,8 +71,8 @@ func (c *Certificate) AsX509Certificate() *x509.Certificate {
 		RawSubject:                  c.RawSubject,
 		RawIssuer:                   c.RawIssuer,
 		Signature:                   c.Signature,
-		SignatureAlgorithm:          c.SignatureAlgorithm,
-		PublicKeyAlgorithm:          c.PublicKeyAlgorithm,
+		SignatureAlgorithm:          x509.SignatureAlgorithm(c.SignatureAlgorithm),
+		PublicKeyAlgorithm:          x509.PublicKeyAlgorithm(c.PublicKeyAlgorithm),
 		PublicKey:                   c.PublicKey,
 		Version:                     c.Version,
 		SerialNumber:                c.SerialNumber,
@@ -42,11 +80,11 @@ func (c *Certificate) AsX509Certificate() *x509.Certificate {
 		Subject:                     c.Subject,
 		NotBefore:                   c.NotBefore,
 		NotAfter:                    c.NotAfter,
-		KeyUsage:                    c.KeyUsage,
+		KeyUsage:                    x509.KeyUsage(c.KeyUsage),
 		Extensions:                  c.Extensions,
 		ExtraExtensions:             c.ExtraExtensions,
 		UnhandledCriticalExtensions: c.UnhandledCriticalExtensions,
-		ExtKeyUsage:                 c.ExtKeyUsage,
+		ExtKeyUsage:                 extKeyUsage,
 		UnknownExtKeyUsage:          c.UnknownExtKeyUsage,
 		BasicConstraintsValid:       c.BasicConstraintsValid,
 		IsCA:                        c.IsCA,
@@ -59,8 +97,16 @@ func (c *Certificate) AsX509Certificate() *x509.Certificate {
 		DNSNames:                    c.DNSNames,
 		EmailAddresses:              c.EmailAddresses,
 		IPAddresses:                 c.IPAddresses,
+		URIs:                        c.URIs,
 		PermittedDNSDomainsCritical: c.PermittedDNSDomainsCritical,
 		PermittedDNSDomains:         c.PermittedDNSDomains,
+		ExcludedDNSDomains:          c.ExcludedDNSDomains,
+		PermittedIPRanges:           c.PermittedIPRanges,
+		ExcludedIPRanges:            c.ExcludedIPRanges,
+		PermittedEmailAddresses:     c.PermittedEmailAddresses,
+		ExcludedEmailAddresses:      c.ExcludedEmailAddresses,
+		PermittedURIDomains:         c.PermittedURIDomains,
+		ExcludedURIDomains:          c.ExcludedURIDomains,
 		CRLDistributionPoints:       c.CRLDistributionPoints,
 		PolicyIdentifiers:           c.PolicyIdentifiers,
 	}
@@ -76,32 +122,36 @@ func (s *CertPool) AsX509CertPool() *x509.CertPool {
 	return newCertPool
 }
 
-// findVerifiedParents attempts to find certificates in s which have signed the
-// given certificate. If any candidates were rejected then errCert will be set
-// to one of them, arbitrarily, and err will contain the reason that it was
-// rejected.
-func (s *CertPool) findVerifiedParents(cert *Certificate) (parents []int, errCert *Certificate, err error) {
+// findPotentialParents returns the indexes of certificates in s which might
+// have signed cert. The caller must not modify the returned slice.
+func (s *CertPool) findPotentialParents(cert *Certificate) []int {
 	if s == nil {
-		return
+		return nil
 	}
-	var candidates []int
 
+	var candidates []int
 	if len(cert.AuthorityKeyId) > 0 {
 		candidates = s.bySubjectKeyId[string(cert.AuthorityKeyId)]
 	}
 	if len(candidates) == 0 {
 		candidates = s.byName[string(cert.RawIssuer)]
 	}
+	return candidates
+}
 
+func (s *CertPool) contains(cert *Certificate) bool {
+	if s == nil {
+		return false
+	}
+
+	candidates := s.byName[string(cert.RawSubject)]
 	for _, c := range candidates {
-		if err = cert.CheckSignatureFrom(s.certs[c]); err == nil {
-			parents = append(parents, c)
-		} else {
-			errCert = s.certs[c]
+		if s.certs[c].Equal(cert) {
+			return true
 		}
 	}
 
-	return
+	return false
 }
 
 // AddCert adds a certificate to a pool.
@@ -111,10 +161,8 @@ func (s *CertPool) AddCert(cert *Certificate) {
 	}
 
 	// Check that the certificate isn't being added twice.
-	for _, c := range s.certs {
-		if c.Equal(cert) {
-			return
-		}
+	if s.contains(cert) {
+		return
 	}
 
 	n := len(s.certs)
@@ -159,10 +207,10 @@ func (s *CertPool) AppendCertsFromPEM(pemCerts []byte) (ok bool) {
 
 // Subjects returns a list of the DER-encoded subjects of
 // all of the certificates in the pool.
-func (s *CertPool) Subjects() (res [][]byte) {
-	res = make([][]byte, len(s.certs))
+func (s *CertPool) Subjects() [][]byte {
+	res := make([][]byte, len(s.certs))
 	for i, c := range s.certs {
 		res[i] = c.RawSubject
 	}
-	return
+	return res
 }

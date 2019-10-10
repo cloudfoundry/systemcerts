@@ -8,46 +8,44 @@ import (
 	"errors"
 	"syscall"
 	"unsafe"
-
-	"golang.org/x/sys/windows"
 )
 
-// Creates a new *windows.CertContext representing the leaf certificate in an in-memory
+// Creates a new *syscall.CertContext representing the leaf certificate in an in-memory
 // certificate store containing itself and all of the intermediate certificates specified
 // in the opts.Intermediates CertPool.
 //
 // A pointer to the in-memory store is available in the returned CertContext's Store field.
 // The store is automatically freed when the CertContext is freed using
-// windows.CertFreeCertificateContext.
-func createStoreContext(leaf *Certificate, opts *VerifyOptions) (*windows.CertContext, error) {
-	var storeCtx *windows.CertContext
+// syscall.CertFreeCertificateContext.
+func createStoreContext(leaf *Certificate, opts *VerifyOptions) (*syscall.CertContext, error) {
+	var storeCtx *syscall.CertContext
 
-	leafCtx, err := windows.CertCreateCertificateContext(windows.X509_ASN_ENCODING|windows.PKCS_7_ASN_ENCODING, &leaf.Raw[0], uint32(len(leaf.Raw)))
+	leafCtx, err := syscall.CertCreateCertificateContext(syscall.X509_ASN_ENCODING|syscall.PKCS_7_ASN_ENCODING, &leaf.Raw[0], uint32(len(leaf.Raw)))
 	if err != nil {
 		return nil, err
 	}
-	defer windows.CertFreeCertificateContext(leafCtx)
+	defer syscall.CertFreeCertificateContext(leafCtx)
 
-	handle, err := windows.CertOpenStore(windows.CERT_STORE_PROV_MEMORY, 0, 0, windows.CERT_STORE_DEFER_CLOSE_UNTIL_LAST_FREE_FLAG, 0)
+	handle, err := syscall.CertOpenStore(syscall.CERT_STORE_PROV_MEMORY, 0, 0, syscall.CERT_STORE_DEFER_CLOSE_UNTIL_LAST_FREE_FLAG, 0)
 	if err != nil {
 		return nil, err
 	}
-	defer windows.CertCloseStore(handle, 0)
+	defer syscall.CertCloseStore(handle, 0)
 
-	err = windows.CertAddCertificateContextToStore(handle, leafCtx, windows.CERT_STORE_ADD_ALWAYS, &storeCtx)
+	err = syscall.CertAddCertificateContextToStore(handle, leafCtx, syscall.CERT_STORE_ADD_ALWAYS, &storeCtx)
 	if err != nil {
 		return nil, err
 	}
 
 	if opts.Intermediates != nil {
 		for _, intermediate := range opts.Intermediates.certs {
-			ctx, err := windows.CertCreateCertificateContext(windows.X509_ASN_ENCODING|windows.PKCS_7_ASN_ENCODING, &intermediate.Raw[0], uint32(len(intermediate.Raw)))
+			ctx, err := syscall.CertCreateCertificateContext(syscall.X509_ASN_ENCODING|syscall.PKCS_7_ASN_ENCODING, &intermediate.Raw[0], uint32(len(intermediate.Raw)))
 			if err != nil {
 				return nil, err
 			}
 
-			err = windows.CertAddCertificateContextToStore(handle, ctx, windows.CERT_STORE_ADD_ALWAYS, nil)
-			windows.CertFreeCertificateContext(ctx)
+			err = syscall.CertAddCertificateContextToStore(handle, ctx, syscall.CERT_STORE_ADD_ALWAYS, nil)
+			syscall.CertFreeCertificateContext(ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -58,14 +56,14 @@ func createStoreContext(leaf *Certificate, opts *VerifyOptions) (*windows.CertCo
 }
 
 // extractSimpleChain extracts the final certificate chain from a CertSimpleChain.
-func extractSimpleChain(simpleChain **windows.CertSimpleChain, count int) (chain []*Certificate, err error) {
+func extractSimpleChain(simpleChain **syscall.CertSimpleChain, count int) (chain []*Certificate, err error) {
 	if simpleChain == nil || count == 0 {
 		return nil, errors.New("x509: invalid simple chain")
 	}
 
-	simpleChains := (*[1 << 20]*windows.CertSimpleChain)(unsafe.Pointer(simpleChain))[:]
+	simpleChains := (*[1 << 20]*syscall.CertSimpleChain)(unsafe.Pointer(simpleChain))[:]
 	lastChain := simpleChains[count-1]
-	elements := (*[1 << 20]*windows.CertChainElement)(unsafe.Pointer(lastChain.Elements))[:]
+	elements := (*[1 << 20]*syscall.CertChainElement)(unsafe.Pointer(lastChain.Elements))[:]
 	for i := 0; i < int(lastChain.NumElements); i++ {
 		// Copy the buf, since ParseCertificate does not create its own copy.
 		cert := elements[i].CertContext
@@ -84,12 +82,12 @@ func extractSimpleChain(simpleChain **windows.CertSimpleChain, count int) (chain
 
 // checkChainTrustStatus checks the trust status of the certificate chain, translating
 // any errors it finds into Go errors in the process.
-func checkChainTrustStatus(c *Certificate, chainCtx *windows.CertChainContext) error {
-	if chainCtx.TrustStatus.ErrorStatus != windows.CERT_TRUST_NO_ERROR {
+func checkChainTrustStatus(c *Certificate, chainCtx *syscall.CertChainContext) error {
+	if chainCtx.TrustStatus.ErrorStatus != syscall.CERT_TRUST_NO_ERROR {
 		status := chainCtx.TrustStatus.ErrorStatus
 		switch status {
-		case windows.CERT_TRUST_IS_NOT_TIME_VALID:
-			return CertificateInvalidError{c, Expired}
+		case syscall.CERT_TRUST_IS_NOT_TIME_VALID:
+			return CertificateInvalidError{c, Expired, ""}
 		default:
 			return UnknownAuthorityError{c, nil, nil}
 		}
@@ -99,24 +97,24 @@ func checkChainTrustStatus(c *Certificate, chainCtx *windows.CertChainContext) e
 
 // checkChainSSLServerPolicy checks that the certificate chain in chainCtx is valid for
 // use as a certificate chain for a SSL/TLS server.
-func checkChainSSLServerPolicy(c *Certificate, chainCtx *windows.CertChainContext, opts *VerifyOptions) error {
-	servernamep, err := windows.UTF16PtrFromString(opts.DNSName)
+func checkChainSSLServerPolicy(c *Certificate, chainCtx *syscall.CertChainContext, opts *VerifyOptions) error {
+	servernamep, err := syscall.UTF16PtrFromString(opts.DNSName)
 	if err != nil {
 		return err
 	}
-	sslPara := &windows.SSLExtraCertChainPolicyPara{
-		AuthType:   windows.AUTHTYPE_SERVER,
+	sslPara := &syscall.SSLExtraCertChainPolicyPara{
+		AuthType:   syscall.AUTHTYPE_SERVER,
 		ServerName: servernamep,
 	}
 	sslPara.Size = uint32(unsafe.Sizeof(*sslPara))
 
-	para := &windows.CertChainPolicyPara{
-		ExtraPolicyPara: windows.Pointer(unsafe.Pointer(sslPara)),
+	para := &syscall.CertChainPolicyPara{
+		ExtraPolicyPara: (syscall.Pointer)(unsafe.Pointer(sslPara)),
 	}
 	para.Size = uint32(unsafe.Sizeof(*para))
 
-	status := windows.CertChainPolicyStatus{}
-	err = windows.CertVerifyCertificateChainPolicy(windows.CERT_CHAIN_POLICY_SSL, chainCtx, para, &status)
+	status := syscall.CertChainPolicyStatus{}
+	err = syscall.CertVerifyCertificateChainPolicy(syscall.CERT_CHAIN_POLICY_SSL, chainCtx, para, &status)
 	if err != nil {
 		return err
 	}
@@ -126,11 +124,11 @@ func checkChainSSLServerPolicy(c *Certificate, chainCtx *windows.CertChainContex
 	// using c.
 	if status.Error != 0 {
 		switch status.Error {
-		case windows.CERT_E_EXPIRED:
-			return CertificateInvalidError{c, Expired}
-		case windows.CERT_E_CN_NO_MATCH:
+		case syscall.CERT_E_EXPIRED:
+			return CertificateInvalidError{c, Expired, ""}
+		case syscall.CERT_E_CN_NO_MATCH:
 			return HostnameError{c, opts.DNSName}
-		case windows.CERT_E_UNTRUSTEDROOT:
+		case syscall.CERT_E_UNTRUSTEDROOT:
 			return UnknownAuthorityError{c, nil, nil}
 		default:
 			return UnknownAuthorityError{c, nil, nil}
@@ -149,39 +147,39 @@ func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate
 	if err != nil {
 		return nil, err
 	}
-	defer windows.CertFreeCertificateContext(storeCtx)
+	defer syscall.CertFreeCertificateContext(storeCtx)
 
-	para := new(windows.CertChainPara)
+	para := new(syscall.CertChainPara)
 	para.Size = uint32(unsafe.Sizeof(*para))
 
 	// If there's a DNSName set in opts, assume we're verifying
 	// a certificate from a TLS server.
 	if hasDNSName {
 		oids := []*byte{
-			&windows.OID_PKIX_KP_SERVER_AUTH[0],
+			&syscall.OID_PKIX_KP_SERVER_AUTH[0],
 			// Both IE and Chrome allow certificates with
 			// Server Gated Crypto as well. Some certificates
 			// in the wild require them.
-			&windows.OID_SERVER_GATED_CRYPTO[0],
-			&windows.OID_SGC_NETSCAPE[0],
+			&syscall.OID_SERVER_GATED_CRYPTO[0],
+			&syscall.OID_SGC_NETSCAPE[0],
 		}
-		para.RequestedUsage.Type = windows.USAGE_MATCH_TYPE_OR
+		para.RequestedUsage.Type = syscall.USAGE_MATCH_TYPE_OR
 		para.RequestedUsage.Usage.Length = uint32(len(oids))
 		para.RequestedUsage.Usage.UsageIdentifiers = &oids[0]
 	} else {
-		para.RequestedUsage.Type = windows.USAGE_MATCH_TYPE_AND
+		para.RequestedUsage.Type = syscall.USAGE_MATCH_TYPE_AND
 		para.RequestedUsage.Usage.Length = 0
 		para.RequestedUsage.Usage.UsageIdentifiers = nil
 	}
 
-	var verifyTime *windows.Filetime
+	var verifyTime *syscall.Filetime
 	if opts != nil && !opts.CurrentTime.IsZero() {
-		ft := windows.NsecToFiletime(opts.CurrentTime.UnixNano())
+		ft := syscall.NsecToFiletime(opts.CurrentTime.UnixNano())
 		verifyTime = &ft
 	}
 
 	// CertGetCertificateChain will traverse Windows's root stores
-	// in an attempt to build a verified certificate chain.  Once
+	// in an attempt to build a verified certificate chain. Once
 	// it has found a verified chain, it stops. MSDN docs on
 	// CERT_CHAIN_CONTEXT:
 	//
@@ -198,12 +196,12 @@ func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate
 	//
 	// The result is that we'll only get a single trusted chain to
 	// return to our caller.
-	var chainCtx *windows.CertChainContext
-	err = windows.CertGetCertificateChain(windows.Handle(0), storeCtx, verifyTime, storeCtx.Store, para, 0, 0, &chainCtx)
+	var chainCtx *syscall.CertChainContext
+	err = syscall.CertGetCertificateChain(syscall.Handle(0), storeCtx, verifyTime, storeCtx.Store, para, 0, 0, &chainCtx)
 	if err != nil {
 		return nil, err
 	}
-	defer windows.CertFreeCertificateChain(chainCtx)
+	defer syscall.CertFreeCertificateChain(chainCtx)
 
 	err = checkChainTrustStatus(c, chainCtx)
 	if err != nil {
@@ -227,28 +225,26 @@ func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate
 	return chains, nil
 }
 
-func initSystemRoots() {
+func loadSystemRoots() (*CertPool, error) {
 	const CRYPT_E_NOT_FOUND = 0x80092004
 
-	store, err := windows.CertOpenSystemStore(0, windows.StringToUTF16Ptr("ROOT"))
+	store, err := syscall.CertOpenSystemStore(0, syscall.StringToUTF16Ptr("ROOT"))
 	if err != nil {
-		systemRoots = nil
-		return
+		return nil, err
 	}
-	defer windows.CertCloseStore(store, 0)
+	defer syscall.CertCloseStore(store, 0)
 
 	roots := NewCertPool()
-	var cert *windows.CertContext
+	var cert *syscall.CertContext
 	for {
-		cert, err = windows.CertEnumCertificatesInStore(store, cert)
+		cert, err = syscall.CertEnumCertificatesInStore(store, cert)
 		if err != nil {
 			if errno, ok := err.(syscall.Errno); ok {
 				if errno == CRYPT_E_NOT_FOUND {
 					break
 				}
 			}
-			systemRoots = nil
-			return
+			return nil, err
 		}
 		if cert == nil {
 			break
@@ -261,5 +257,5 @@ func initSystemRoots() {
 			roots.AddCert(c)
 		}
 	}
-	systemRoots = roots
+	return roots, nil
 }

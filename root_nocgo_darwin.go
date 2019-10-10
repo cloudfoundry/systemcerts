@@ -6,6 +6,6 @@
 
 package systemcerts
 
-func initSystemRoots() {
-	systemRoots, _ = execSecurityRoots()
+func loadSystemRoots() (*CertPool, error) {
+	return execSecurityRoots()
 }
